@@ -69,16 +69,37 @@ app.get('/auth/google/callback', async (req, res) => {
   }
 });
 
+const supabaseClient = require('@supabase/supabase-js').createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
 // Step 3: Create a Google Meet via Calendar API
 app.post('/api/create-google-meet', async (req, res) => {
-  if (!req.session.tokens) return res.status(401).send('Not authenticated');
+  let userId = null;
+
+  // Extract Supabase access token from Authorization header
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace('Bearer ', '');
+
+  if (!token) {
+    return res.status(401).json({ error: 'Missing token' });
+  }
+
+  // Validate Supabase token
+  const { data: user, error } = await supabaseClient.auth.getUser(token);
+  if (error || !user) {
+    return res.status(401).json({ error: 'Invalid Supabase token' });
+  }
+
+  // Now you're authenticated!
+  oauth2Client.setCredentials(req.session.tokens); // or store OAuth tokens per user if needed
 
   try {
-    oauth2Client.setCredentials(req.session.tokens);
     const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
     const startTime = new Date();
-    const endTime = new Date(startTime.getTime() + 30 * 60000); // +30 min
+    const endTime = new Date(startTime.getTime() + 30 * 60000);
 
     const event = {
       summary: 'Mentorship Session',
@@ -99,9 +120,9 @@ app.post('/api/create-google-meet', async (req, res) => {
     });
 
     res.json({ meetLink: response.data.hangoutLink });
-  } catch (error) {
-    console.error('Failed to create Meet:', error);
-    res.status(500).send('Failed to create Google Meet.');
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to create Meet' });
   }
 });
 
