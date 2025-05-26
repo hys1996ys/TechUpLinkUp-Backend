@@ -76,31 +76,31 @@ const supabaseClient = require('@supabase/supabase-js').createClient(
 
 // Step 3: Create a Google Meet via Calendar API
 app.post('/api/create-google-meet', async (req, res) => {
-  let userId = null;
-
-  // Extract Supabase access token from Authorization header
-  const authHeader = req.headers.authorization || '';
-  const token = authHeader.replace('Bearer ', '');
-
-  if (!token) {
-    return res.status(401).json({ error: 'Missing token' });
+  // Check for Google OAuth tokens
+  if (!req.session.tokens) {
+    console.error('No Google OAuth tokens in session:', req.session.tokens);
+    return res.status(401).json({ error: 'Google authentication required. Please sign in with Google.' });
   }
 
-  // Validate Supabase token
+  // Optionally: Check Supabase token if you want both auths
+  /*
+  let userId = null;
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace('Bearer ', '');
+  if (!token) {
+    return res.status(401).json({ error: 'Missing Supabase token' });
+  }
   const { data: user, error } = await supabaseClient.auth.getUser(token);
   if (error || !user) {
     return res.status(401).json({ error: 'Invalid Supabase token' });
   }
-
-  // Now you're authenticated!
-  oauth2Client.setCredentials(req.session.tokens); // or store OAuth tokens per user if needed
+  */
 
   try {
+    oauth2Client.setCredentials(req.session.tokens);
     const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-
     const startTime = new Date();
     const endTime = new Date(startTime.getTime() + 30 * 60000);
-
     const event = {
       summary: 'Mentorship Session',
       start: { dateTime: startTime.toISOString() },
@@ -112,17 +112,15 @@ app.post('/api/create-google-meet', async (req, res) => {
         }
       }
     };
-
     const response = await calendar.events.insert({
       calendarId: 'primary',
       resource: event,
       conferenceDataVersion: 1
     });
-
     res.json({ meetLink: response.data.hangoutLink });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to create Meet' });
+    console.error('Failed to create Meet:', err);
+    res.status(500).json({ error: 'Failed to create Meet', details: err.message });
   }
 });
 
