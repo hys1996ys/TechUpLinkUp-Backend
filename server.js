@@ -106,6 +106,15 @@ app.post('/api/create-google-meet', async (req, res) => {
   }
 });
 
+// Add an endpoint to check Google OAuth authentication status
+app.get('/api/check-auth', (req, res) => {
+  if (req.session && req.session.tokens) {
+    res.json({ authenticated: true });
+  } else {
+    res.json({ authenticated: false });
+  }
+});
+
 // Start the server
 const PORT = process.env.PORT || 5500;
 app.listen(PORT, () => {
