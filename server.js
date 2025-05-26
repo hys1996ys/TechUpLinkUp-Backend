@@ -17,7 +17,10 @@ app.use(cors({
 app.use(session({
   name: 'session',
   keys: ['key1', 'key2'],
-  maxAge: 24 * 60 * 60 * 1000 // 1 day
+  maxAge: 24 * 60 * 60 * 1000, // 1 day
+  sameSite: 'none',
+  secure: true,
+  domain: '.techuplinkup.com'
 }));
 
 // Root route for testing Render deployment
