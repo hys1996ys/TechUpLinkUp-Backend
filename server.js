@@ -53,6 +53,7 @@ const oauth2Client = new google.auth.OAuth2(
   process.env.REDIRECT_URI
 );
 
+
 const SCOPES = ['https://www.googleapis.com/auth/calendar'];
 
 // Step 1: Redirect to Google OAuth
@@ -67,18 +68,19 @@ app.get('/auth/google', (req, res) => {
 // Step 2: Handle callback from Google
 app.get('/auth/google/callback', async (req, res) => {
   const { code } = req.query;
+
   try {
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
 
-    // Use the token to get the user's email from Google
+    // Use tokens to get user's Google email
     const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
     const { data: profile } = await oauth2.userinfo.get();
-
     const email = profile?.email;
-    if (!email) throw new Error('No email returned from Google');
 
-    // Get Supabase user by email
+    if (!email) throw new Error('No email from Google');
+
+    // Get Supabase user by email (from 'profiles' table)
     const { data: users, error } = await supabase
       .from('profiles')
       .select('id')
@@ -92,7 +94,7 @@ app.get('/auth/google/callback', async (req, res) => {
 
     const userId = users.id;
 
-    // Save tokens to Supabase
+    // Save Google tokens to Supabase
     const { error: upsertError } = await supabase
       .from('google_tokens')
       .upsert({
@@ -105,22 +107,18 @@ app.get('/auth/google/callback', async (req, res) => {
       });
 
     if (upsertError) {
-      console.error('Failed to upsert tokens:', upsertError);
-      return res.status(500).send('Token storage failed');
+      console.error('Error saving tokens:', upsertError);
+      return res.status(500).send('Token save failed');
     }
 
+    console.log('✅ Google tokens saved for:', email);
     return res.redirect(process.env.FRONTEND_URL);
-  } catch (error) {
-    console.error('OAuth callback error:', error);
-    res.status(500).send('Authentication failed.');
+  } catch (err) {
+    console.error('OAuth callback error:', err);
+    return res.status(500).send('OAuth failed');
   }
 });
 
-
-const supabaseClient = require('@supabase/supabase-js').createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
 
 // Step 3: Create a Google Meet via Calendar API
 app.post('/api/create-google-meet', async (req, res) => {
