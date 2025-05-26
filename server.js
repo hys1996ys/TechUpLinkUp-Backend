@@ -30,7 +30,8 @@ app.use(session({
   keys: ['key1', 'key2'],
   maxAge: 24 * 60 * 60 * 1000,
   sameSite: 'none',
-  secure: true
+  secure: true,
+  domain: '.techuplinkup.com' // Ensures cookie is valid for both www and non-www
 }));
 
 // Root route for testing Render deployment
