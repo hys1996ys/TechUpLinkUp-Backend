@@ -69,24 +69,32 @@ app.get('/auth/google', (req, res) => {
 // Step 2: Handle callback from Google
 app.get('/auth/google/callback', async (req, res) => {
   const { code } = req.query;
+  console.log('🔐 OAuth code:', code);
 
   try {
-    // 🔍 Add this log BEFORE calling getToken
-    console.log('🔐 OAuth code:', code);
-
     const { tokens } = await oauth2Client.getToken(code);
+    console.log('🔑 Received tokens from Google:', tokens);
 
-    // 🔍 Add this log AFTER receiving the tokens
-    console.log('🔑 Received tokens:', tokens);
+    if (!tokens || !tokens.access_token) {
+      console.error('❌ Missing access token in tokens:', tokens);
+      return res.status(500).send('OAuth failed: no access token');
+    }
 
     oauth2Client.setCredentials(tokens);
+    console.log('✅ oauth2Client credentials set');
 
+    // Get user email from Google
     const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
     const { data: profile } = await oauth2.userinfo.get();
+    console.log('👤 Google profile:', profile);
 
     const email = profile?.email;
-    if (!email) throw new Error('No email from Google');
+    if (!email) {
+      console.error('❌ No email returned by Google userinfo API');
+      return res.status(500).send('OAuth failed: no email');
+    }
 
+    // Lookup Supabase profile by email
     const { data: users, error } = await supabase
       .from('profiles')
       .select('id')
@@ -94,11 +102,12 @@ app.get('/auth/google/callback', async (req, res) => {
       .maybeSingle();
 
     if (error || !users) {
-      console.error('❌ Supabase user lookup failed:', error);
+      console.error('❌ Supabase user lookup failed:', error || 'User not found');
       return res.status(401).send('User not found in Supabase');
     }
 
     const userId = users.id;
+    console.log(`🧠 Supabase user ID found for ${email}:`, userId);
 
     const { error: upsertError } = await supabase
       .from('google_tokens')
@@ -112,11 +121,11 @@ app.get('/auth/google/callback', async (req, res) => {
       });
 
     if (upsertError) {
-      console.error('❌ Error saving tokens:', upsertError);
-      return res.status(500).send('Token save failed');
+      console.error('❌ Failed to save tokens to Supabase:', upsertError);
+      return res.status(500).send('Failed to store tokens');
     }
 
-    console.log('✅ Google tokens saved for:', email);
+    console.log('✅ Google tokens saved to Supabase for:', email);
     return res.redirect(process.env.FRONTEND_URL);
   } catch (err) {
     console.error('❌ OAuth callback error:', err);
