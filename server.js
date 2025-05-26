@@ -7,6 +7,13 @@ require('dotenv').config();
 const app = express();
 app.use(express.json());
 
+const { createClient } = require('@supabase/supabase-js');
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
 // Allow requests from your frontend domain
 const allowedOrigins = [
   'https://techuplinkup.com',
@@ -77,52 +84,25 @@ const supabaseClient = require('@supabase/supabase-js').createClient(
 
 // Step 3: Create a Google Meet via Calendar API
 app.post('/api/create-google-meet', async (req, res) => {
-  // Check for Google OAuth tokens
-  if (!req.session.tokens) {
-    console.error('No Google OAuth tokens in session:', req.session.tokens);
-    return res.status(401).json({ error: 'Google authentication required. Please sign in with Google.' });
-  }
-
-  // Optionally: Check Supabase token if you want both auths
-  /*
-  let userId = null;
   const authHeader = req.headers.authorization || '';
   const token = authHeader.replace('Bearer ', '');
+
+  console.log('Auth header received:', req.headers.authorization); // <-- Add here
+
   if (!token) {
-    return res.status(401).json({ error: 'Missing Supabase token' });
+    return res.status(401).json({ error: 'Missing token' });
   }
-  const { data: user, error } = await supabaseClient.auth.getUser(token);
+
+  const { data: user, error } = await supabase.auth.getUser(token);
+
+  console.log('Supabase user:', user); // <-- Add here
+
   if (error || !user) {
+    console.error('Supabase token error:', error);
     return res.status(401).json({ error: 'Invalid Supabase token' });
   }
-  */
 
-  try {
-    oauth2Client.setCredentials(req.session.tokens);
-    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-    const startTime = new Date();
-    const endTime = new Date(startTime.getTime() + 30 * 60000);
-    const event = {
-      summary: 'Mentorship Session',
-      start: { dateTime: startTime.toISOString() },
-      end: { dateTime: endTime.toISOString() },
-      conferenceData: {
-        createRequest: {
-          requestId: `meet-${Date.now()}`,
-          conferenceSolutionKey: { type: 'hangoutsMeet' },
-        }
-      }
-    };
-    const response = await calendar.events.insert({
-      calendarId: 'primary',
-      resource: event,
-      conferenceDataVersion: 1
-    });
-    res.json({ meetLink: response.data.hangoutLink });
-  } catch (err) {
-    console.error('Failed to create Meet:', err);
-    res.status(500).json({ error: 'Failed to create Meet', details: err.message });
-  }
+  return res.json({ meetLink: 'https://meet.google.com/fake-meet-link-for-now' }); // ✅ Stubbed response
 });
 
 // Add an endpoint to check Google OAuth authentication status
