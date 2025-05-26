@@ -80,13 +80,30 @@ app.get('/auth/google/callback', async (req, res) => {
       return res.status(500).send('OAuth failed: no access token');
     }
 
-    oauth2Client.setCredentials(tokens);
+    // Explicitly set the access token
+    oauth2Client.setCredentials({
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      scope: tokens.scope,
+      token_type: tokens.token_type,
+      expiry_date: tokens.expiry_date
+    });
     console.log('✅ oauth2Client credentials set');
+
+    // Debug: Check if credentials are set
+    console.log('🛡️ oauth2Client credentials:', oauth2Client.credentials);
 
     // Get user email from Google
     const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
-    const { data: profile } = await oauth2.userinfo.get();
-    console.log('👤 Google profile:', profile);
+    let profile;
+    try {
+      const userinfoResponse = await oauth2.userinfo.get();
+      profile = userinfoResponse.data;
+      console.log('👤 Google profile:', profile);
+    } catch (userinfoErr) {
+      console.error('❌ Failed to fetch userinfo:', userinfoErr);
+      return res.status(500).send('OAuth failed: could not fetch user info');
+    }
 
     const email = profile?.email;
     if (!email) {
