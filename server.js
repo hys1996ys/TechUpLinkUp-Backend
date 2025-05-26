@@ -69,13 +69,53 @@ app.get('/auth/google/callback', async (req, res) => {
   const { code } = req.query;
   try {
     const { tokens } = await oauth2Client.getToken(code);
-    req.session.tokens = tokens;
-    res.redirect(process.env.FRONTEND_URL); // Back to your static site
+    oauth2Client.setCredentials(tokens);
+
+    // Use the token to get the user's email from Google
+    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+    const { data: profile } = await oauth2.userinfo.get();
+
+    const email = profile?.email;
+    if (!email) throw new Error('No email returned from Google');
+
+    // Get Supabase user by email
+    const { data: users, error } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (error || !users) {
+      console.error('Supabase user lookup failed:', error);
+      return res.status(401).send('User not found in Supabase');
+    }
+
+    const userId = users.id;
+
+    // Save tokens to Supabase
+    const { error: upsertError } = await supabase
+      .from('google_tokens')
+      .upsert({
+        user_id: userId,
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        scope: tokens.scope,
+        token_type: tokens.token_type,
+        expiry_date: tokens.expiry_date
+      });
+
+    if (upsertError) {
+      console.error('Failed to upsert tokens:', upsertError);
+      return res.status(500).send('Token storage failed');
+    }
+
+    return res.redirect(process.env.FRONTEND_URL);
   } catch (error) {
     console.error('OAuth callback error:', error);
     res.status(500).send('Authentication failed.');
   }
 });
+
 
 const supabaseClient = require('@supabase/supabase-js').createClient(
   process.env.SUPABASE_URL,
@@ -87,23 +127,63 @@ app.post('/api/create-google-meet', async (req, res) => {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.replace('Bearer ', '');
 
-  console.log('Auth header received:', req.headers.authorization); // <-- Add here
-
-  if (!token) {
-    return res.status(401).json({ error: 'Missing token' });
-  }
+  if (!token) return res.status(401).json({ error: 'Missing token' });
 
   const { data: user, error } = await supabase.auth.getUser(token);
+  if (error || !user) return res.status(401).json({ error: 'Invalid Supabase token' });
 
-  console.log('Supabase user:', user); // <-- Add here
+  const userId = user.user.id;
 
-  if (error || !user) {
-    console.error('Supabase token error:', error);
-    return res.status(401).json({ error: 'Invalid Supabase token' });
+  const { data: storedTokens, error: tokenError } = await supabase
+    .from('google_tokens')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (tokenError || !storedTokens) {
+    return res.status(403).json({ error: 'Google tokens not found' });
   }
 
-  return res.json({ meetLink: 'https://meet.google.com/fake-meet-link-for-now' }); // ✅ Stubbed response
+  // Set credentials to OAuth client
+  oauth2Client.setCredentials({
+    access_token: storedTokens.access_token,
+    refresh_token: storedTokens.refresh_token,
+    scope: storedTokens.scope,
+    token_type: storedTokens.token_type,
+    expiry_date: storedTokens.expiry_date
+  });
+
+  try {
+    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+
+    const startTime = new Date();
+    const endTime = new Date(startTime.getTime() + 30 * 60000); // 30 min later
+
+    const event = {
+      summary: 'Mentorship Session',
+      start: { dateTime: startTime.toISOString() },
+      end: { dateTime: endTime.toISOString() },
+      conferenceData: {
+        createRequest: {
+          requestId: `meet-${Date.now()}`,
+          conferenceSolutionKey: { type: 'hangoutsMeet' },
+        }
+      }
+    };
+
+    const response = await calendar.events.insert({
+      calendarId: 'primary',
+      resource: event,
+      conferenceDataVersion: 1
+    });
+
+    return res.json({ meetLink: response.data.hangoutLink });
+  } catch (err) {
+    console.error('Meet creation failed:', err);
+    return res.status(500).json({ error: 'Meet creation failed' });
+  }
 });
+
 
 // Add an endpoint to check Google OAuth authentication status
 app.get('/api/check-auth', (req, res) => {
